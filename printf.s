@@ -3,48 +3,108 @@ global _start
 
 _start:
 
-    ;разложение сишного printf("%d", 12525);
-    mov rsi, 12525        ;аргумент принтфа
-    lea rdi, integer      ;%d
+    mov rsi, 10235
+    mov rdi, proc_b    ;dint db "%d$"
     mov rax, 0
 
-    call check_param
+    jmp _printf_push
+    back_pr_push:
+
+    jmp _rep_check_params
+    back_rep_check_params:
 
     call printf_buf
     call next_line
 
+    call dtor_buffer
     call _global_xor
 
     mov rax, 0x3C
     xor rdi, rdi
     syscall
 
+;-------------------------------------------------
+
+_rep_check_params:
+
+get_next_arg:
+
+    mov bl, byte [rdi]
+    cmp byte [rdi], "$" ;% - d - $
+    jz args_end
+
+    cmp byte [rdi], "%"
+    jne not_procent
+
+    inc rdi
+    cmp byte [rdi], "%"
+    je not_back_slash_n
+
+    call check_param
+    inc rdi
+    jmp get_next_arg
+
+    not_procent:
+    cmp byte [rdi], "\" ;back slash
+    jne not_back_slash_n
+
+    inc rdi
+    cmp byte [rdi], "n"
+    jne not_back_slash_n
+
+    mov bl, 0x0A
+    mov [buffer + r15], bl
+    inc r15
+    inc rdi
+
+    jmp get_next_arg
+
+    not_back_slash_n:
+
+    mov bl, byte [rdi]
+    mov [buffer + r15], bl
+    inc rdi
+    inc r15
+
+    jmp get_next_arg
+
+    args_end:
+
+    jmp back_rep_check_params
+
+;-------------------------------------------------
+
 check_param:
 
-    mov rbx, rdi
-    xor rdi, rdi
-    mov rax, rsi
+    pop r9
+    pop rax
+    push rdi
 
-    cmp rbx, string
+    cmp byte [rdi], "s"
     je read_string
 
-    cmp rbx, char
+    cmp byte [rdi], "c"
     je read_char
 
-    cmp rbx, integer
+    cmp byte [rdi], "d"
     je read_int
 
-    cmp rbx, binar
+    cmp byte [rdi], "b"
     je read_binary
 
-    cmp rbx, octal
+    cmp byte [rdi], "o"
     je read_octal
 
-    cmp rbx, hexx
+    cmp byte [rdi], "h"
     je read_hex
+
+    cmp byte [rdi], "b"
+    je read_binary
 
     end_check_param:
 
+    pop rdi
+    push r9
     ret
 
 ;---------------------------------------------------
@@ -53,11 +113,22 @@ read_string:
 
     call _length
     call _compare_buffer_string_
+
+    mov rdi, r15
     call _str_copy
+    add r15, rdi
 
     jmp end_check_param
 
 read_binary:
+
+    mov rbx, 2d
+
+    mov rdi, r15
+
+    call itoa
+
+    add r15, rdi
 
     jmp end_check_param
 
@@ -65,7 +136,11 @@ read_hex:
 
     mov rbx, 10h
 
+    mov rdi, r15
+
     call itoa
+
+    add r15, rdi
 
     jmp end_check_param
 
@@ -73,14 +148,18 @@ read_octal:
 
     mov rbx, 10o
 
+    mov rdi, r15
+
     call itoa
+
+    add r15, rdi
 
     jmp end_check_param
 
 read_char:
 
-    mov [buffer + rdi], rax
-    inc rdi
+    mov [buffer + r15], rax
+    inc r15
 
     call check_buffer
 
@@ -90,7 +169,11 @@ read_int:
 
     mov rbx, 10d
 
+    mov rdi, r15
+
     call itoa
+
+    add r15, rdi
 
     jmp end_check_param
 
@@ -122,7 +205,7 @@ next_digit:
     atoi_end:
 
     mov rcx, rsi
-    ;mov rcx, 3h
+
 put_number:
 
     pop rax
@@ -141,7 +224,6 @@ put_number:
 
     loop put_number
 
-    ;xor rbp, rbp
     pop rcx
 
     ret
@@ -150,23 +232,27 @@ put_number:
 
 _length:
 
+    xor rcx, rcx
+    dec rax
     mov rsi, -1
 
     next_symbol:
-
+    inc rax
     inc rsi
-    mov rcx, [rax + rsi]
 
-    cmp rcx, 0
+    mov cl, byte [rax]
+    cmp cl, 0
     je str_end
 
     jmp next_symbol
 
     str_end:
 
+    sub rax, rsi
+
     ;add rsi, "0"
-    ;mov [buffer + rdi], rsi
-    ;inc rdi
+    ;mov [buffer + r15], rsi
+    ;inc r15
     ;sub rsi, "0"
     ret
 
@@ -198,16 +284,16 @@ _str_copy:
 
     push rdx
     push rbx
-    xor rbx, rbx
     xor rdx, rdx
 
     mov rbx, rax         ;str1 address
     mov rcx, rsi         ;length of str1
     add rdi, buffer      ;current position of free element
+    xor rax, rax
 
     next_symbol_pr_s:
 
-    mov rax, [rbx + rdx]   ;rax = [str1 + num_repeat]
+    mov al, byte [rbx + rdx]   ;rax = [str1 + num_repeat]
     inc rdx                ;num_repeat++
 
     call cycle_checker
@@ -345,6 +431,7 @@ _global_pop:
 
     push rbp ;вернули адрес возврата в стек для ret
     ret
+
 ;---------------------------------------------
 
 _global_xor:
@@ -360,19 +447,30 @@ _global_xor:
 
 ;---------------------------------------------
 
+_printf_push:
+
+    ;pop rax ;занесли адрес возврата в rbp
+
+    push r9
+    push r8
+    push rcx
+    push rdx
+    push rsi
+
+    ;push rax ;вернули адрес возврата в стек для ret
+    jmp back_pr_push
+
+;---------------------------------------------
+
 section .data
 
     symbol db 10          ;aski \n
-    str1   db "qwertyu", 0
-
+    str1   db "dgs", 0
+    str2   db "hahdr", 0
+    dint db "%d hyi %d - %d:%d$", 0
+    new_str db "%s\n%s %%%c||||%o\n\n\n%%$"
+    proc_b db "%b$"
     procent equ 25h
-
-    string  equ "%s"
-    char    equ "%c"
-    integer equ "%d"
-    hexx    equ "%x"
-    octal   equ "%o"
-    binar   equ "%b"
 
     RESET_THE_BUF equ 77
 
@@ -381,5 +479,6 @@ section .data
 section .bss
 
     buffer db 100 dup(?)
+
 
 
